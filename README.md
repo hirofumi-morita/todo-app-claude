@@ -1,17 +1,19 @@
 # TODO管理ウェブアプリケーション
 
-フルスタックのTODO管理アプリケーションです。Next.js、Go、PostgreSQLを使用して構築されています。
+フルスタックのTODO管理アプリケーションです。Next.js、Go、Gin、Hasura、PostgreSQLを使用して構築されています。
 
 ## 技術スタック
 
 ### フロントエンド
 - **Next.js 14** - Reactフレームワーク
 - **TypeScript** - 型安全性
-- **Axios** - HTTPクライアント
+- **Apollo Client** - GraphQLクライアント
+- **GraphQL** - APIクエリ言語
 
 ### バックエンド
-- **Go 1.21** - APIサーバー
-- **Gorilla Mux** - ルーティング
+- **Go 1.21** - カスタムAPIサーバー（認証用）
+- **Gin** - Webアプリケーションフレームワーク
+- **Hasura** - GraphQLエンジン
 - **PostgreSQL** - データベース
 - **JWT** - 認証
 
@@ -66,7 +68,9 @@ docker-compose logs -f
 
 以下のサービスが起動します：
 - フロントエンド: http://localhost:3000
-- バックエンドAPI: http://localhost:8080
+- Hasura GraphQL API: http://localhost:8080/v1/graphql
+- Hasura Console: http://localhost:8080/console
+- カスタムバックエンドAPI（認証用）: http://localhost:8081
 - PostgreSQL: localhost:5432
 
 ### 3. ローカル開発環境のセットアップ
@@ -138,7 +142,21 @@ npm run dev
 
 ## API エンドポイント
 
-### 認証
+### GraphQL API（Hasura）
+
+すべてのTODO操作はHasura GraphQL APIを通じて実行されます：
+
+**エンドポイント**: `http://localhost:8080/v1/graphql`
+
+主なクエリとミューテーション：
+- **Queries**: `todos`, `todos_by_pk`, `users`, `users_by_pk`
+- **Mutations**: `insert_todos_one`, `update_todos_by_pk`, `delete_todos_by_pk`
+
+GraphQL APIは自動的にJWTトークンを検証し、ユーザーごとのアクセス制御を行います。
+
+### REST API（認証用）
+
+認証機能はカスタムGoバックエンドで提供されます：
 
 ```
 POST   /api/register          - ユーザー登録
@@ -146,17 +164,9 @@ POST   /api/login             - ログイン
 GET    /api/me                - 現在のユーザー情報取得（要認証）
 ```
 
-### TODO管理
-
-```
-GET    /api/todos             - TODO一覧取得（要認証）
-GET    /api/todos/:id         - TODO詳細取得（要認証）
-POST   /api/todos             - TODO作成（要認証）
-PUT    /api/todos/:id         - TODO更新（要認証）
-DELETE /api/todos/:id         - TODO削除（要認証）
-```
-
 ### 管理者機能
+
+管理者機能もカスタムバックエンドで提供されます：
 
 ```
 GET    /api/admin/users           - ユーザー一覧取得（要管理者権限）
@@ -178,11 +188,11 @@ GET    /api/admin/users/:id/todos - ユーザーのTODO取得（要管理者権�
 │   │   ├── database/
 │   │   │   └── database.go          # DB接続とマイグレーション
 │   │   ├── handlers/
-│   │   │   ├── auth.go              # 認証ハンドラー
-│   │   │   ├── todo.go              # TODOハンドラー
-│   │   │   └── admin.go             # 管理者ハンドラー
+│   │   │   ├── auth.go              # 認証ハンドラー（Gin）
+│   │   │   ├── todo.go              # TODOハンドラー（Gin）
+│   │   │   └── admin.go             # 管理者ハンドラー（Gin）
 │   │   ├── middleware/
-│   │   │   ├── auth.go              # 認証ミドルウェア
+│   │   │   ├── auth.go              # 認証ミドルウェア（Gin）
 │   │   │   └── password.go          # パスワードハッシュ
 │   │   └── models/
 │   │       └── user.go              # データモデル
@@ -201,10 +211,13 @@ GET    /api/admin/users/:id/todos - ユーザーのTODO取得（要管理者権�
 │   │   │   ├── todos/
 │   │   │   │   └── page.tsx         # TODOページ
 │   │   │   ├── layout.tsx           # レイアウト
+│   │   │   ├── providers.tsx        # Apollo Provider
 │   │   │   ├── page.tsx             # ホームページ
 │   │   │   └── globals.css          # グローバルスタイル
 │   │   ├── lib/
-│   │   │   ├── api.ts               # APIクライアント
+│   │   │   ├── api.ts               # REST APIクライアント
+│   │   │   ├── apollo-client.ts     # Apollo Clientセットアップ
+│   │   │   ├── graphql.ts           # GraphQLクエリ/ミューテーション
 │   │   │   └── auth.ts              # 認証ユーティリティ
 │   │   └── types/
 │   │       └── index.ts             # TypeScript型定義
@@ -212,6 +225,11 @@ GET    /api/admin/users/:id/todos - ユーザーのTODO取得（要管理者権�
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── next.config.js
+├── hasura/
+│   └── metadata/
+│       ├── databases.yaml           # Hasuraデータベース設定
+│       ├── actions.yaml             # Hasuraアクション定義
+│       └── version.yaml             # Hasuraメタデータバージョン
 ├── docker-compose.yml
 ├── .env.example
 ├── .gitignore
@@ -296,12 +314,34 @@ docker-compose down -v
 docker-compose up -d
 ```
 
+## アーキテクチャの特徴
+
+このアプリケーションは、HasuraとカスタムGoバックエンドを組み合わせたハイブリッドアーキテクチャを採用しています：
+
+### Hasuraの役割
+- **GraphQL API提供**: TODO操作のCRUD機能を自動生成
+- **リアルタイム機能**: GraphQL Subscriptionsによるリアルタイム更新
+- **権限管理**: JWTベースの行レベルセキュリティ
+- **パフォーマンス**: 最適化されたクエリとキャッシング
+
+### カスタムGoバックエンド（Gin）の役割
+- **認証**: ユーザー登録・ログイン・JWTトークン発行
+- **パスワード管理**: bcryptによる安全なハッシュ化
+- **管理者機能**: 複雑なビジネスロジックの実装
+- **カスタムエンドポイント**: Hasuraで対応できない特殊な処理
+
+この構成により、開発速度とカスタマイズ性の両立を実現しています。
+
 ## セキュリティに関する注意
 
-- 本番環境では、JWTシークレットキーを変更してください (`backend/internal/middleware/auth.go`)
+- 本番環境では、以下のシークレットキーを必ず変更してください：
+  - JWTシークレットキー (`backend/internal/middleware/auth.go`)
+  - Hasura Admin Secret (`docker-compose.yml`)
+  - Hasura JWT Secret (`docker-compose.yml`)
 - HTTPSを使用してください
 - デフォルトの管理者アカウントを削除または変更してください
 - 環境変数を`.env`ファイルで管理し、`.gitignore`に追加してください
+- Hasura Consoleへのアクセスを本番環境では無効化してください
 
 ## ライセンス
 

@@ -2,14 +2,12 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"os"
 	"todo-app/backend/internal/database"
 	"todo-app/backend/internal/handlers"
 	"todo-app/backend/internal/middleware"
 
-	"github.com/gorilla/mux"
-	"github.com/rs/cors"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -40,44 +38,55 @@ func main() {
 	todoHandler := handlers.NewTodoHandler(db)
 	adminHandler := handlers.NewAdminHandler(db)
 
-	r := mux.NewRouter()
+	r := gin.Default()
 
-	api := r.PathPrefix("/api").Subrouter()
+	// CORS middleware
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
 
-	api.HandleFunc("/register", authHandler.Register).Methods("POST")
-	api.HandleFunc("/login", authHandler.Login).Methods("POST")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
 
-	protected := api.PathPrefix("").Subrouter()
-	protected.Use(middleware.AuthMiddleware)
-	protected.HandleFunc("/me", authHandler.GetCurrentUser).Methods("GET")
-	protected.HandleFunc("/todos", todoHandler.GetTodos).Methods("GET")
-	protected.HandleFunc("/todos", todoHandler.CreateTodo).Methods("POST")
-	protected.HandleFunc("/todos/{id}", todoHandler.GetTodo).Methods("GET")
-	protected.HandleFunc("/todos/{id}", todoHandler.UpdateTodo).Methods("PUT")
-	protected.HandleFunc("/todos/{id}", todoHandler.DeleteTodo).Methods("DELETE")
-
-	admin := api.PathPrefix("/admin").Subrouter()
-	admin.Use(middleware.AuthMiddleware)
-	admin.Use(middleware.AdminMiddleware)
-	admin.HandleFunc("/users", adminHandler.GetAllUsers).Methods("GET")
-	admin.HandleFunc("/users/{id}", adminHandler.GetUser).Methods("GET")
-	admin.HandleFunc("/users/{id}", adminHandler.DeleteUser).Methods("DELETE")
-	admin.HandleFunc("/users/{id}/role", adminHandler.UpdateUserRole).Methods("PUT")
-	admin.HandleFunc("/users/{id}/todos", adminHandler.GetUserTodos).Methods("GET")
-
-	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization"},
-		AllowCredentials: true,
+		c.Next()
 	})
 
-	handler := c.Handler(r)
+	api := r.Group("/api")
+	{
+		api.POST("/register", authHandler.Register)
+		api.POST("/login", authHandler.Login)
+
+		protected := api.Group("")
+		protected.Use(middleware.GinAuthMiddleware())
+		{
+			protected.GET("/me", authHandler.GetCurrentUser)
+			protected.GET("/todos", todoHandler.GetTodos)
+			protected.POST("/todos", todoHandler.CreateTodo)
+			protected.GET("/todos/:id", todoHandler.GetTodo)
+			protected.PUT("/todos/:id", todoHandler.UpdateTodo)
+			protected.DELETE("/todos/:id", todoHandler.DeleteTodo)
+		}
+
+		admin := api.Group("/admin")
+		admin.Use(middleware.GinAuthMiddleware())
+		admin.Use(middleware.GinAdminMiddleware())
+		{
+			admin.GET("/users", adminHandler.GetAllUsers)
+			admin.GET("/users/:id", adminHandler.GetUser)
+			admin.DELETE("/users/:id", adminHandler.DeleteUser)
+			admin.PUT("/users/:id/role", adminHandler.UpdateUserRole)
+			admin.GET("/users/:id/todos", adminHandler.GetUserTodos)
+		}
+	}
 
 	port := getEnv("PORT", "8080")
 	log.Printf("Server starting on port %s", port)
 	log.Printf("Default admin credentials - Email: admin@example.com, Password: admin123")
-	log.Fatal(http.ListenAndServe(":"+port, handler))
+	r.Run(":" + port)
 }
 
 func getEnv(key, defaultValue string) string {
