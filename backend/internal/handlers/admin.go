@@ -2,12 +2,11 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"todo-app/backend/internal/models"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 )
 
 type AdminHandler struct {
@@ -18,13 +17,13 @@ func NewAdminHandler(db *sql.DB) *AdminHandler {
 	return &AdminHandler{DB: db}
 }
 
-func (h *AdminHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
+func (h *AdminHandler) GetAllUsers(c *gin.Context) {
 	rows, err := h.DB.Query(
 		`SELECT id, email, is_admin, created_at, updated_at
 		 FROM users ORDER BY created_at DESC`,
 	)
 	if err != nil {
-		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch users"})
 		return
 	}
 	defer rows.Close()
@@ -34,7 +33,7 @@ func (h *AdminHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		var user models.User
 		err := rows.Scan(&user.ID, &user.Email, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
-			http.Error(w, "Failed to scan user", http.StatusInternalServerError)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan user"})
 			return
 		}
 		users = append(users, user)
@@ -44,15 +43,13 @@ func (h *AdminHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		users = []models.User{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
+	c.JSON(http.StatusOK, users)
 }
 
-func (h *AdminHandler) GetUser(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	userID, err := strconv.Atoi(vars["id"])
+func (h *AdminHandler) GetUser(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
@@ -64,55 +61,51 @@ func (h *AdminHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	).Scan(&user.ID, &user.Email, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "User not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 	if err != nil {
-		http.Error(w, "Failed to fetch user", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	c.JSON(http.StatusOK, user)
 }
 
-func (h *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	userID, err := strconv.Atoi(vars["id"])
+func (h *AdminHandler) DeleteUser(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
 	result, err := h.DB.Exec("DELETE FROM users WHERE id = $1", userID)
 	if err != nil {
-		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil || rowsAffected == 0 {
-		http.Error(w, "User not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "User deleted successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
 }
 
-func (h *AdminHandler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	userID, err := strconv.Atoi(vars["id"])
+func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
 	var req struct {
 		IsAdmin bool `json:"is_admin"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -125,23 +118,21 @@ func (h *AdminHandler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	).Scan(&user.ID, &user.Email, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "User not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 	if err != nil {
-		http.Error(w, "Failed to update user role", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user role"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	c.JSON(http.StatusOK, user)
 }
 
-func (h *AdminHandler) GetUserTodos(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	userID, err := strconv.Atoi(vars["id"])
+func (h *AdminHandler) GetUserTodos(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
@@ -151,7 +142,7 @@ func (h *AdminHandler) GetUserTodos(w http.ResponseWriter, r *http.Request) {
 		userID,
 	)
 	if err != nil {
-		http.Error(w, "Failed to fetch todos", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch todos"})
 		return
 	}
 	defer rows.Close()
@@ -164,7 +155,7 @@ func (h *AdminHandler) GetUserTodos(w http.ResponseWriter, r *http.Request) {
 			&todo.Completed, &todo.CreatedAt, &todo.UpdatedAt,
 		)
 		if err != nil {
-			http.Error(w, "Failed to scan todo", http.StatusInternalServerError)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan todo"})
 			return
 		}
 		todos = append(todos, todo)
@@ -174,6 +165,5 @@ func (h *AdminHandler) GetUserTodos(w http.ResponseWriter, r *http.Request) {
 		todos = []models.Todo{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(todos)
+	c.JSON(http.StatusOK, todos)
 }

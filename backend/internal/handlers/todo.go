@@ -2,13 +2,12 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"todo-app/backend/internal/middleware"
 	"todo-app/backend/internal/models"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 )
 
 type TodoHandler struct {
@@ -19,10 +18,10 @@ func NewTodoHandler(db *sql.DB) *TodoHandler {
 	return &TodoHandler{DB: db}
 }
 
-func (h *TodoHandler) GetTodos(w http.ResponseWriter, r *http.Request) {
-	userCtx, ok := middleware.GetUserFromContext(r)
+func (h *TodoHandler) GetTodos(c *gin.Context) {
+	userCtx, ok := middleware.GetUserFromGinContext(c)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
@@ -32,7 +31,7 @@ func (h *TodoHandler) GetTodos(w http.ResponseWriter, r *http.Request) {
 		userCtx.UserID,
 	)
 	if err != nil {
-		http.Error(w, "Failed to fetch todos", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch todos"})
 		return
 	}
 	defer rows.Close()
@@ -45,7 +44,7 @@ func (h *TodoHandler) GetTodos(w http.ResponseWriter, r *http.Request) {
 			&todo.Completed, &todo.CreatedAt, &todo.UpdatedAt,
 		)
 		if err != nil {
-			http.Error(w, "Failed to scan todo", http.StatusInternalServerError)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan todo"})
 			return
 		}
 		todos = append(todos, todo)
@@ -55,21 +54,19 @@ func (h *TodoHandler) GetTodos(w http.ResponseWriter, r *http.Request) {
 		todos = []models.Todo{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(todos)
+	c.JSON(http.StatusOK, todos)
 }
 
-func (h *TodoHandler) GetTodo(w http.ResponseWriter, r *http.Request) {
-	userCtx, ok := middleware.GetUserFromContext(r)
+func (h *TodoHandler) GetTodo(c *gin.Context) {
+	userCtx, ok := middleware.GetUserFromGinContext(c)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	vars := mux.Vars(r)
-	todoID, err := strconv.Atoi(vars["id"])
+	todoID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, "Invalid todo ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid todo ID"})
 		return
 	}
 
@@ -84,33 +81,32 @@ func (h *TodoHandler) GetTodo(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "Todo not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
 		return
 	}
 	if err != nil {
-		http.Error(w, "Failed to fetch todo", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch todo"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(todo)
+	c.JSON(http.StatusOK, todo)
 }
 
-func (h *TodoHandler) CreateTodo(w http.ResponseWriter, r *http.Request) {
-	userCtx, ok := middleware.GetUserFromContext(r)
+func (h *TodoHandler) CreateTodo(c *gin.Context) {
+	userCtx, ok := middleware.GetUserFromGinContext(c)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	var req models.TodoRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
 	if req.Title == "" {
-		http.Error(w, "Title is required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Title is required"})
 		return
 	}
 
@@ -126,32 +122,29 @@ func (h *TodoHandler) CreateTodo(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		http.Error(w, "Failed to create todo", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create todo"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(todo)
+	c.JSON(http.StatusCreated, todo)
 }
 
-func (h *TodoHandler) UpdateTodo(w http.ResponseWriter, r *http.Request) {
-	userCtx, ok := middleware.GetUserFromContext(r)
+func (h *TodoHandler) UpdateTodo(c *gin.Context) {
+	userCtx, ok := middleware.GetUserFromGinContext(c)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	vars := mux.Vars(r)
-	todoID, err := strconv.Atoi(vars["id"])
+	todoID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, "Invalid todo ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid todo ID"})
 		return
 	}
 
 	var req models.TodoRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -168,29 +161,27 @@ func (h *TodoHandler) UpdateTodo(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "Todo not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
 		return
 	}
 	if err != nil {
-		http.Error(w, "Failed to update todo", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update todo"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(todo)
+	c.JSON(http.StatusOK, todo)
 }
 
-func (h *TodoHandler) DeleteTodo(w http.ResponseWriter, r *http.Request) {
-	userCtx, ok := middleware.GetUserFromContext(r)
+func (h *TodoHandler) DeleteTodo(c *gin.Context) {
+	userCtx, ok := middleware.GetUserFromGinContext(c)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	vars := mux.Vars(r)
-	todoID, err := strconv.Atoi(vars["id"])
+	todoID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, "Invalid todo ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid todo ID"})
 		return
 	}
 
@@ -199,17 +190,15 @@ func (h *TodoHandler) DeleteTodo(w http.ResponseWriter, r *http.Request) {
 		todoID, userCtx.UserID,
 	)
 	if err != nil {
-		http.Error(w, "Failed to delete todo", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete todo"})
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil || rowsAffected == 0 {
-		http.Error(w, "Todo not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Todo deleted successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Todo deleted successfully"})
 }

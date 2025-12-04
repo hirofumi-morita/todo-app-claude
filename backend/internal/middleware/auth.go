@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -39,6 +40,62 @@ func GenerateToken(userID int, isAdmin bool) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(jwtSecret)
+}
+
+func GinAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			c.Abort()
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenString == authHeader {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
+			c.Abort()
+			return
+		}
+
+		claims := &Claims{}
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+			return jwtSecret, nil
+		})
+
+		if err != nil || !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.Abort()
+			return
+		}
+
+		c.Set("user", UserContext{
+			UserID:  claims.UserID,
+			IsAdmin: claims.IsAdmin,
+		})
+
+		c.Next()
+	}
+}
+
+func GinAdminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userCtx, exists := c.Get("user")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		user, ok := userCtx.(UserContext)
+		if !ok || !user.IsAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
 }
 
 func AuthMiddleware(next http.Handler) http.Handler {
@@ -109,6 +166,15 @@ func CORS(next http.Handler) http.Handler {
 func GetUserFromContext(r *http.Request) (UserContext, bool) {
 	userCtx, ok := r.Context().Value(UserContextKey).(UserContext)
 	return userCtx, ok
+}
+
+func GetUserFromGinContext(c *gin.Context) (UserContext, bool) {
+	userCtx, exists := c.Get("user")
+	if !exists {
+		return UserContext{}, false
+	}
+	user, ok := userCtx.(UserContext)
+	return user, ok
 }
 
 func CreateDefaultAdmin(db *sql.DB) error {

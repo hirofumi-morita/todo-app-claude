@@ -18,6 +18,24 @@ services:
       timeout: 5s
       retries: 5
 
+  hasura:
+    image: hasura/graphql-engine:v2.36.0
+    container_name: todo-hasura
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      HASURA_GRAPHQL_DATABASE_URL: postgres://postgres:postgres@postgres:5432/todoapp
+      HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
+      HASURA_GRAPHQL_DEV_MODE: "true"
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
+      HASURA_GRAPHQL_ADMIN_SECRET: myadminsecretkey
+      HASURA_GRAPHQL_UNAUTHORIZED_ROLE: anonymous
+      HASURA_GRAPHQL_JWT_SECRET: '{"type":"HS256","key":"your-256-bit-secret-key-change-this-in-production"}'
+
   backend:
     build:
       context: ./backend
@@ -30,12 +48,16 @@ services:
       DB_PASSWORD: postgres
       DB_NAME: todoapp
       DB_SSLMODE: disable
-      PORT: 8080
+      PORT: 8081
+      HASURA_GRAPHQL_ADMIN_SECRET: myadminsecretkey
+      HASURA_GRAPHQL_ENDPOINT: http://hasura:8080/v1/graphql
     ports:
-      - "8080:8080"
+      - "8081:8081"
     depends_on:
       postgres:
         condition: service_healthy
+      hasura:
+        condition: service_started
     restart: unless-stopped
 
   frontend:
@@ -44,11 +66,13 @@ services:
       dockerfile: Dockerfile
     container_name: todo-frontend
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080/api
+      NEXT_PUBLIC_GRAPHQL_URL: http://localhost:8080/v1/graphql
+      NEXT_PUBLIC_API_URL: http://localhost:8081/api
     ports:
       - "3000:3000"
     depends_on:
       - backend
+      - hasura
     restart: unless-stopped
 
 volumes:
